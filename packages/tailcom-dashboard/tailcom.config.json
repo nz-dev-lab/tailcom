@@ -1,0 +1,10 @@
+{
+  "dashboardId": "developer-laptop",
+  "clients": [
+    {
+      "name": "Salt n Pepper Preston",
+      "ip": "100.79.233.49",
+      "port": 7654
+    }
+  ]
+}
