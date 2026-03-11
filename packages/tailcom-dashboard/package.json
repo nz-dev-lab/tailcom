@@ -1,0 +1,53 @@
+{
+  "name": "tailcom-dashboard",
+  "version": "1.0.0",
+  "description": "Tailcom dashboard — Electron app for calling shop machines over Tailscale",
+  "main": "dist/electron/main.js",
+  "scripts": {
+    "build": "tsc && webpack --config webpack.config.js",
+    "build:electron": "tsc",
+    "build:renderer": "webpack --config webpack.config.js",
+    "start": "electron .",
+    "dev": "concurrently \"tsc --watch\" \"webpack --config webpack.config.js --watch\""
+  },
+  "dependencies": {
+    "ws": "^8.17.0",
+    "@roamhq/wrtc": "^0.10.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "zustand": "^4.5.2",
+    "electron-store": "^8.2.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.12.7",
+    "@types/react": "^18.3.1",
+    "@types/react-dom": "^18.3.0",
+    "@types/ws": "^8.5.10",
+    "electron": "^30.0.2",
+    "electron-builder": "^24.13.3",
+    "typescript": "^5.4.5",
+    "webpack": "^5.91.0",
+    "webpack-cli": "^5.1.4",
+    "ts-loader": "^9.5.1",
+    "html-webpack-plugin": "^5.6.0",
+    "concurrently": "^8.2.2"
+  },
+  "build": {
+    "appId": "com.tailcom.dashboard",
+    "productName": "tailcom",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "tailcom.config.json"
+    ],
+    "mac": {
+      "category": "public.app-category.utilities"
+    },
+    "win": {
+      "target": "nsis"
+    }
+  },
+  "license": "MIT"
+}

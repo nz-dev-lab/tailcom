@@ -1,0 +1,17 @@
+{
+  "name": "tailcom",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "npm run build --workspaces --if-present",
+    "start:dashboard": "npm run start --workspace=packages/tailcom-dashboard",
+    "test": "npx ts-node test-local.ts"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.5",
+    "ts-node": "^10.9.2"
+  }
+}
