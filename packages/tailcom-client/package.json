@@ -10,7 +10,8 @@
   },
   "dependencies": {
     "ws": "^8.17.0",
-    "@roamhq/wrtc": "^0.10.0"
+    "@roamhq/wrtc": "^0.10.0",
+    "node-record-lpcm16": "^1.0.1"
   },
   "devDependencies": {
     "@types/node": "^20.12.7",

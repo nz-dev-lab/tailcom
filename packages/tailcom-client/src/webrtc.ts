@@ -1,5 +1,6 @@
 import { EventEmitter } from 'events'
 import type { IceCandidateMessage } from './types'
+import { startMicCapture, startSpeakerPlayback } from './audio'
 
 // Load wrtc for Node/Electron main process.
 // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -19,21 +20,18 @@ const wrtc = require('@roamhq/wrtc') as {
   }
 }
 
-export type WebRTCEvents = {
-  'ice-candidate': (msg: IceCandidateMessage) => void
-  'connected': () => void
-  'disconnected': () => void
-  'error': (err: Error) => void
-}
-
 export class WebRTCHandler extends EventEmitter {
   private pc: RTCPeerConnection | null = null
   private audioSink: { ondata: ((data: unknown) => void) | null; stop(): void } | null = null
+  private stopMic: (() => void) | null = null
+  private stopSpeaker: (() => void) | null = null
 
   createPeerConnection(): RTCPeerConnection {
-    const pc = new wrtc.RTCPeerConnection({
-      iceServers: [], // No STUN/TURN — direct Tailscale IP only
-    })
+    const pc = new wrtc.RTCPeerConnection({ iceServers: [] })
+
+    // Add a mic track so the remote side receives audio from us
+    const micSource = new wrtc.nonstandard.RTCAudioSource()
+    pc.addTrack(micSource.createTrack())
 
     pc.onicecandidate = (event: RTCPeerConnectionIceEvent) => {
       if (event.candidate) {
@@ -46,6 +44,10 @@ export class WebRTCHandler extends EventEmitter {
 
     pc.onconnectionstatechange = () => {
       if (pc.connectionState === 'connected') {
+        // Start real mic capture — push samples into wrtc source
+        this.stopMic = startMicCapture(
+          { onData: (d) => micSource.onData(d) },
+        )
         this.emit('connected')
       } else if (
         pc.connectionState === 'disconnected' ||
@@ -57,17 +59,17 @@ export class WebRTCHandler extends EventEmitter {
     }
 
     pc.ontrack = (event: RTCTrackEvent) => {
-      // Incoming audio track from dashboard — attach a sink to play it
       const track = event.track
       if (track.kind !== 'audio') return
 
-      // wrtc nonstandard sink outputs PCM frames; in a real Electron renderer
-      // you would pipe these to the system speaker via node-speaker or similar.
-      // Here we create the sink so the track stays active.
+      // Attach sink to receive incoming audio from dashboard
       const sink = new wrtc.nonstandard.RTCAudioSink(track)
       this.audioSink = sink
-      // Silence the lint warning — actual audio playback is wired in client.ts
-      sink.ondata = null
+
+      // Play incoming audio through system speakers
+      this.stopSpeaker = startSpeakerPlayback(
+        sink as { ondata: ((data: unknown) => void) | null },
+      )
     }
 
     this.pc = pc
@@ -89,23 +91,16 @@ export class WebRTCHandler extends EventEmitter {
     if (!this.pc) return
     try {
       await this.pc.addIceCandidate(new wrtc.RTCIceCandidate(candidate))
-    } catch (err) {
-      // Non-fatal — stale candidates are normal
-    }
-  }
-
-  getMicTrack(): MediaStreamTrack | null {
-    if (!this.pc) return null
-    const senders = this.pc.getSenders()
-    return senders.length > 0 ? senders[0].track : null
-  }
-
-  addMicTrack(track: MediaStreamTrack): void {
-    if (!this.pc) return
-    this.pc.addTrack(track)
+    } catch { /* stale candidate — non-fatal */ }
   }
 
   teardown(): void {
+    this.stopMic?.()
+    this.stopMic = null
+
+    this.stopSpeaker?.()
+    this.stopSpeaker = null
+
     if (this.audioSink) {
       try { this.audioSink.stop() } catch { /* ignore */ }
       this.audioSink = null

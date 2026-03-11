@@ -2,6 +2,7 @@ import { app, BrowserWindow, Tray, Menu, ipcMain, nativeImage } from 'electron'
 import * as path from 'path'
 import * as fs from 'fs'
 import { WebSocket } from 'ws'
+import { startMicCapture, startSpeakerPlayback } from './audio'
 
 // Load wrtc for WebRTC in Electron main (Node) process
 // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -80,9 +81,9 @@ let callState: CallState = {
 // Active call handles
 let callSocket: WebSocket | null = null
 let peerConnection: RTCPeerConnection | null = null
-let micSource: { createTrack(): MediaStreamTrack; onData(d: AudioSample): void } | null = null
 let audioSink: { ondata: ((d: AudioSample) => void) | null; stop(): void } | null = null
-let silenceTimer: ReturnType<typeof setInterval> | null = null
+let stopMic: (() => void) | null = null
+let stopSpeaker: (() => void) | null = null
 
 // ── Config ────────────────────────────────────────────────────────────────────
 
@@ -238,18 +239,16 @@ function sendCallState(): void {
 // ── Call teardown ─────────────────────────────────────────────────────────────
 
 function teardownCall(): void {
-  // Stop silence pump
-  if (silenceTimer) {
-    clearInterval(silenceTimer)
-    silenceTimer = null
-  }
+  // Stop mic capture and speaker playback
+  stopMic?.()
+  stopMic = null
+  stopSpeaker?.()
+  stopSpeaker = null
 
-  // Stop audio sink
   if (audioSink) {
     try { audioSink.stop() } catch { /* ignore */ }
     audioSink = null
   }
-  micSource = null
 
   // Close peer connection
   if (peerConnection) {
@@ -305,37 +304,24 @@ async function startCall(client: ClientStatus): Promise<{ ok: boolean; reason?: 
         const pc = new wrtc.RTCPeerConnection({ iceServers: [] })
         peerConnection = pc
 
-        // Create a mic audio source track (RTCAudioSource = wrtc nonstandard)
-        // Pushes silence by default; real mic capture needs a system audio lib.
+        // Create mic audio source track and start real mic capture
         const source = new wrtc.nonstandard.RTCAudioSource()
-        micSource = source
         const micTrack = source.createTrack()
         pc.addTrack(micTrack)
 
-        // Pump silence so the track stays alive
-        const SAMPLE_RATE = 48000
-        const FRAME_MS = 10
-        const FRAMES = (SAMPLE_RATE * FRAME_MS) / 1000 // 480
-        const silenceBuf = new Int16Array(FRAMES)
-        silenceTimer = setInterval(() => {
-          if (!callState.isMuted) {
-            source.onData({
-              samples: silenceBuf,
-              sampleRate: SAMPLE_RATE,
-              bitsPerSample: 16,
-              channelCount: 1,
-              numberOfFrames: FRAMES,
-            })
-          }
-        }, FRAME_MS)
+        stopMic = startMicCapture(
+          { onData: (d) => source.onData(d) },
+          () => callState.isMuted,
+        )
 
-        // Receive incoming audio from client
+        // Receive incoming audio from client — play through speakers
         pc.ontrack = (event: RTCTrackEvent) => {
           if (event.track.kind !== 'audio') return
           const sink = new wrtc.nonstandard.RTCAudioSink(event.track)
           audioSink = sink
-          // Audio frames arrive via sink.ondata — wire to speaker here when ready
-          sink.ondata = null
+          stopSpeaker = startSpeakerPlayback(
+            sink as { ondata: ((d: AudioSample) => void) | null },
+          )
         }
 
         // Forward local ICE candidates to client
