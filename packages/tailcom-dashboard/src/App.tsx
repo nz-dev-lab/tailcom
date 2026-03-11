@@ -1,12 +1,13 @@
-import React, { useEffect } from 'react'
+import React, { useEffect, useCallback } from 'react'
 import { useStore } from './store'
-
-// Sub-components are built in Steps 5–8.
-// This scaffold wires IPC listeners and renders placeholder sections.
+import ClientList from './components/ClientList'
+import CallBar from './components/CallBar'
+import SettingsPanel from './components/SettingsPanel'
 
 export default function App() {
   const setClients = useStore((s) => s.setClients)
   const setCallState = useStore((s) => s.setCallState)
+  const [showSettings, setShowSettings] = React.useState(false)
 
   useEffect(() => {
     const offClients = window.tailcom.onClientsUpdate(setClients)
@@ -17,20 +18,41 @@ export default function App() {
     }
   }, [setClients, setCallState])
 
+  const handleTalk = useCallback(async (clientId: string) => {
+    const result = await window.tailcom.startCall(clientId)
+    if (!result.ok) {
+      console.warn('[tailcom] call failed:', result.reason)
+    }
+  }, [])
+
   return (
     <div style={styles.root}>
-      {/* Drag region — lets user move the frameless window */}
-      <div style={styles.dragRegion} />
-
-      {/* Content area — filled in Steps 5–8 */}
-      <div style={styles.content}>
-        <p style={styles.placeholder}>tailcom loading…</p>
+      {/* Title bar — drag region + app name + settings button */}
+      <div style={styles.titleBar as React.CSSProperties}>
+        <span style={styles.appName as React.CSSProperties}>tailcom</span>
+        <button
+          style={styles.settingsBtn as React.CSSProperties}
+          title="Settings"
+          onClick={() => setShowSettings((v) => !v)}
+        >
+          ⚙
+        </button>
       </div>
+
+      <div style={styles.content}>
+        {showSettings ? (
+          <SettingsPanel onClose={() => setShowSettings(false)} />
+        ) : (
+          <ClientList onTalk={handleTalk} />
+        )}
+      </div>
+
+      <CallBar />
     </div>
   )
 }
 
-const styles: Record<string, React.CSSProperties> = {
+const styles: Record<string, React.CSSProperties & { WebkitAppRegion?: string }> = {
   root: {
     display: 'flex',
     flexDirection: 'column',
@@ -38,21 +60,36 @@ const styles: Record<string, React.CSSProperties> = {
     background: '#1C1917',
     color: '#FAFAF9',
   },
-  dragRegion: {
-    height: 32,
-    // Electron frameless window drag region
+  titleBar: {
+    height: 44,
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: '0 14px',
+    flexShrink: 0,
     WebkitAppRegion: 'drag',
     background: '#1C1917',
-    flexShrink: 0,
-  } as React.CSSProperties & { WebkitAppRegion: string },
+  },
+  appName: {
+    fontSize: 15,
+    fontWeight: 700,
+    letterSpacing: '0.03em',
+    color: '#14B8A6',
+    WebkitAppRegion: 'drag',
+  },
+  settingsBtn: {
+    background: 'none',
+    border: 'none',
+    color: '#78716C',
+    fontSize: 18,
+    cursor: 'pointer',
+    lineHeight: 1,
+    padding: 4,
+    WebkitAppRegion: 'no-drag',
+  },
   content: {
     flex: 1,
     overflow: 'hidden auto',
-    padding: '8px 12px',
-  },
-  placeholder: {
-    color: '#78716C',
-    fontSize: 13,
-    marginTop: 16,
+    padding: '4px 12px 8px',
   },
 }
