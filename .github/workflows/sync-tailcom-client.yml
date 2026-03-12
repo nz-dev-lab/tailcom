@@ -2,7 +2,7 @@ name: Sync tailcom-client
 
 on:
   push:
-    branches: [main]
+    branches: [development, production]
     paths:
       - 'packages/tailcom-client/**'
 
