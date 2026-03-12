@@ -1,0 +1,33 @@
+name: Sync tailcom-client
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'packages/tailcom-client/**'
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Build tailcom-client
+        working-directory: packages/tailcom-client
+        run: npm install && npm run build
+
+      - name: Push to nz-dev-lab/tailcom-client
+        uses: cpina/github-action-push-to-another-repository@main
+        env:
+          API_TOKEN_GITHUB: ${{ secrets.TAILCOM_CLIENT_PUSH_TOKEN }}
+        with:
+          source-directory: packages/tailcom-client
+          destination-github-username: nz-dev-lab
+          destination-repository-name: tailcom-client
+          target-branch: main
+          commit-message: "sync: ${{ github.event.head_commit.message }}"
