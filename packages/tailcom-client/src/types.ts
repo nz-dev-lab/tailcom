@@ -48,6 +48,8 @@ export type OutgoingMessage =
 export interface TailcomClientOptions {
   port?: number
   autoAccept?: boolean
+  /** Seconds before an unanswered incoming call is auto-rejected. Default 30. */
+  autoRejectTimeout?: number
 }
 
 // --- Events ---
@@ -55,6 +57,8 @@ export interface TailcomClientOptions {
 export interface TailcomClientEvents {
   'call-started': () => void
   'call-ended': () => void
+  /** Emitted when autoAccept is false and an offer arrives. */
+  'incoming-call': () => void
   'error': (err: Error) => void
 }
 

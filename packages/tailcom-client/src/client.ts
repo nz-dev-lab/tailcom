@@ -13,6 +13,7 @@ const DEFAULT_PORT = 7654
 export class TailcomClient extends EventEmitter {
   private readonly port: number
   private readonly autoAccept: boolean
+  private readonly autoRejectTimeout: number
 
   private server: http.Server | null = null
   private wss: WebSocketServer | null = null
@@ -20,13 +21,48 @@ export class TailcomClient extends EventEmitter {
   private webrtc: WebRTCHandler | null = null
   private inCall = false
 
+  // Pending state when autoAccept is false
+  private pendingOffer: RTCSessionDescriptionInit | null = null
+  private autoRejectTimer: ReturnType<typeof setTimeout> | null = null
+
   constructor(options: TailcomClientOptions = {}) {
     super()
     this.port = options.port ?? DEFAULT_PORT
     this.autoAccept = options.autoAccept ?? true
+    this.autoRejectTimeout = options.autoRejectTimeout ?? 30
   }
 
   // ── Public API ─────────────────────────────────────────────────────────────
+
+  /**
+   * Accept a pending incoming call (only relevant when autoAccept is false).
+   * Does nothing if there is no pending offer.
+   */
+  acceptCall(): void {
+    if (!this.pendingOffer || !this.activeSocket) return
+    const offer = this.pendingOffer
+    const ws = this.activeSocket
+    this.clearPending()
+    void this.handleOffer(ws, offer)
+  }
+
+  /**
+   * Reject a pending incoming call (only relevant when autoAccept is false).
+   * Sends a hangup back to the dashboard and resets state.
+   */
+  rejectCall(): void {
+    this.clearPending()
+    if (this.activeSocket) {
+      const ws = this.activeSocket
+      this.activeSocket = null
+      if (ws.readyState === WebSocket.OPEN) {
+        try {
+          this.send(ws, { type: 'hangup' })
+          ws.close()
+        } catch { /* ignore */ }
+      }
+    }
+  }
 
   async start(): Promise<void> {
     if (this.wss) return // already running
@@ -98,6 +134,8 @@ export class TailcomClient extends EventEmitter {
       case 'offer':
         if (this.autoAccept) {
           void this.handleOffer(ws, msg.sdp)
+        } else {
+          this.holdOffer(ws, msg.sdp)
         }
         break
 
@@ -109,6 +147,29 @@ export class TailcomClient extends EventEmitter {
         this.teardownCall()
         break
     }
+  }
+
+  // ── Pending-call helpers (autoAccept: false) ───────────────────────────────
+
+  private holdOffer(_ws: WebSocket, offer: RTCSessionDescriptionInit): void {
+    // Already in a call or holding another offer — ignore
+    if (this.inCall || this.pendingOffer) return
+
+    this.pendingOffer = offer
+    this.emit('incoming-call')
+
+    // Auto-reject after timeout
+    this.autoRejectTimer = setTimeout(() => {
+      this.rejectCall()
+    }, this.autoRejectTimeout * 1000)
+  }
+
+  private clearPending(): void {
+    if (this.autoRejectTimer) {
+      clearTimeout(this.autoRejectTimer)
+      this.autoRejectTimer = null
+    }
+    this.pendingOffer = null
   }
 
   // ── Call logic ─────────────────────────────────────────────────────────────
@@ -154,6 +215,7 @@ export class TailcomClient extends EventEmitter {
   }
 
   private teardownCall(): void {
+    this.clearPending()
     const wasInCall = this.inCall
     this.inCall = false
 
