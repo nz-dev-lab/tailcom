@@ -7,7 +7,7 @@
     "build": "tsc && webpack --config webpack.config.js",
     "build:electron": "tsc",
     "build:renderer": "webpack --config webpack.config.js",
-    "start": "electron .",
+    "start": "electron . --no-sandbox --disable-gpu",
     "dev": "concurrently \"tsc --watch\" \"webpack --config webpack.config.js --watch\""
   },
   "dependencies": {

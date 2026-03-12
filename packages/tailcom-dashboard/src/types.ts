@@ -24,8 +24,12 @@ declare global {
       hangUp(): Promise<void>
       setMuted(muted: boolean): Promise<void>
       saveConfig(config: unknown): Promise<{ ok: boolean; reason?: string }>
+      wsSend(msg: unknown): Promise<void>
       onClientsUpdate(cb: (clients: ClientStatus[]) => void): () => void
       onCallState(cb: (state: CallState) => void): () => void
+      onWsOpen(cb: (clientId: string, clientName: string) => void): () => void
+      onWsMessage(cb: (msg: unknown) => void): () => void
+      onWsClose(cb: () => void): () => void
     }
   }
 }

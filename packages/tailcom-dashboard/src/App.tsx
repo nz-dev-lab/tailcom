@@ -3,10 +3,14 @@ import { useStore } from './store'
 import ClientList from './components/ClientList'
 import CallBar from './components/CallBar'
 import SettingsPanel from './components/SettingsPanel'
+import { useWebRTC } from './hooks/useWebRTC'
 
 export default function App() {
   const setClients = useStore((s) => s.setClients)
   const setCallState = useStore((s) => s.setCallState)
+
+  // Browser WebRTC — handles offer/answer/ICE + mic/speaker in renderer
+  useWebRTC()
   const [showSettings, setShowSettings] = React.useState(false)
 
   useEffect(() => {

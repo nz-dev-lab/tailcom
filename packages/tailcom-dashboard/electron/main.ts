@@ -2,33 +2,6 @@ import { app, BrowserWindow, Tray, Menu, ipcMain, nativeImage } from 'electron'
 import * as path from 'path'
 import * as fs from 'fs'
 import { WebSocket } from 'ws'
-import { startMicCapture, startSpeakerPlayback } from './audio'
-
-// Load wrtc for WebRTC in Electron main (Node) process
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const wrtc = require('@roamhq/wrtc') as {
-  RTCPeerConnection: typeof RTCPeerConnection
-  RTCSessionDescription: typeof RTCSessionDescription
-  RTCIceCandidate: typeof RTCIceCandidate
-  nonstandard: {
-    RTCAudioSource: new () => {
-      createTrack(): MediaStreamTrack
-      onData(data: AudioSample): void
-    }
-    RTCAudioSink: new (track: MediaStreamTrack) => {
-      ondata: ((data: AudioSample) => void) | null
-      stop(): void
-    }
-  }
-}
-
-interface AudioSample {
-  samples: Int16Array
-  sampleRate: number
-  bitsPerSample: number
-  channelCount: number
-  numberOfFrames: number
-}
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -57,9 +30,8 @@ interface CallState {
 }
 
 interface SignalMessage {
-  type: 'pong' | 'answer' | 'ice-candidate' | 'hangup'
-  sdp?: RTCSessionDescriptionInit
-  candidate?: RTCIceCandidateInit
+  type: string
+  [key: string]: unknown
 }
 
 // ── State ─────────────────────────────────────────────────────────────────────
@@ -78,12 +50,8 @@ let callState: CallState = {
   startedAt: null,
 }
 
-// Active call handles
+// Active call WebSocket (signalling only — WebRTC lives in renderer)
 let callSocket: WebSocket | null = null
-let peerConnection: RTCPeerConnection | null = null
-let audioSink: { ondata: ((d: AudioSample) => void) | null; stop(): void } | null = null
-let stopMic: (() => void) | null = null
-let stopSpeaker: (() => void) | null = null
 
 // ── Config ────────────────────────────────────────────────────────────────────
 
@@ -239,24 +207,9 @@ function sendCallState(): void {
 // ── Call teardown ─────────────────────────────────────────────────────────────
 
 function teardownCall(): void {
-  // Stop mic capture and speaker playback
-  stopMic?.()
-  stopMic = null
-  stopSpeaker?.()
-  stopSpeaker = null
+  // Notify renderer to teardown WebRTC
+  mainWindow?.webContents.send('ws:close')
 
-  if (audioSink) {
-    try { audioSink.stop() } catch { /* ignore */ }
-    audioSink = null
-  }
-
-  // Close peer connection
-  if (peerConnection) {
-    try { peerConnection.close() } catch { /* ignore */ }
-    peerConnection = null
-  }
-
-  // Close signalling socket
   if (callSocket) {
     try {
       if (callSocket.readyState === WebSocket.OPEN) {
@@ -277,137 +230,49 @@ function teardownCall(): void {
   sendCallState()
 }
 
-// ── Call start (WebRTC offerer) ───────────────────────────────────────────────
+// ── Call start (WebSocket only — WebRTC handled by renderer) ──────────────────
 
-async function startCall(client: ClientStatus): Promise<{ ok: boolean; reason?: string }> {
+function startCall(client: ClientStatus): { ok: boolean; reason?: string } {
+  if (callSocket) return { ok: false, reason: 'already in call' }
+
   const ws = new WebSocket(`ws://${client.ip}:${client.port}`)
   callSocket = ws
 
-  return new Promise((resolve) => {
-    let resolved = false
+  ws.on('open', () => {
+    // Tell renderer to start WebRTC — renderer creates offer, sends back via ws:send
+    mainWindow?.webContents.send('ws:open', client.id, client.name)
 
-    function fail(reason: string) {
-      if (resolved) return
-      resolved = true
-      teardownCall()
-      resolve({ ok: false, reason })
+    callState = {
+      active: true,
+      clientId: client.id,
+      clientName: client.name,
+      isMuted: false,
+      startedAt: Date.now(),
     }
-
-    ws.on('error', (err) => fail(err.message))
-    ws.on('close', () => {
-      if (!resolved) teardownCall()
-    })
-
-    ws.on('open', async () => {
-      try {
-        // Create peer connection (no STUN/TURN — direct Tailscale IP)
-        const pc = new wrtc.RTCPeerConnection({ iceServers: [] })
-        peerConnection = pc
-
-        // Create mic audio source track and start real mic capture
-        const source = new wrtc.nonstandard.RTCAudioSource()
-        const micTrack = source.createTrack()
-        pc.addTrack(micTrack)
-
-        stopMic = startMicCapture(
-          { onData: (d) => source.onData(d) },
-          () => callState.isMuted,
-        )
-
-        // Receive incoming audio from client — play through speakers
-        pc.ontrack = (event: RTCTrackEvent) => {
-          if (event.track.kind !== 'audio') return
-          const sink = new wrtc.nonstandard.RTCAudioSink(event.track)
-          audioSink = sink
-          stopSpeaker = startSpeakerPlayback(
-            sink as { ondata: ((d: AudioSample) => void) | null },
-          )
-        }
-
-        // Forward local ICE candidates to client
-        pc.onicecandidate = (event: RTCPeerConnectionIceEvent) => {
-          if (event.candidate && ws.readyState === WebSocket.OPEN) {
-            ws.send(JSON.stringify({
-              type: 'ice-candidate',
-              candidate: event.candidate.toJSON(),
-            }))
-          }
-        }
-
-        pc.onconnectionstatechange = () => {
-          if (
-            pc.connectionState === 'disconnected' ||
-            pc.connectionState === 'failed' ||
-            pc.connectionState === 'closed'
-          ) {
-            teardownCall()
-          }
-        }
-
-        // Handle messages from client (answer, ice-candidate, hangup)
-        ws.on('message', (data) => {
-          let msg: SignalMessage
-          try { msg = JSON.parse(data.toString()) as SignalMessage }
-          catch { return }
-
-          void handleSignalMessage(pc, ws, msg, () => {
-            if (resolved) return
-            resolved = true
-            callState = {
-              active: true,
-              clientId: client.id,
-              clientName: client.name,
-              isMuted: false,
-              startedAt: Date.now(),
-            }
-            sendCallState()
-            resolve({ ok: true })
-          })
-        })
-
-        // Create and send SDP offer
-        const offer = await pc.createOffer()
-        await pc.setLocalDescription(offer)
-        ws.send(JSON.stringify({ type: 'offer', sdp: pc.localDescription }))
-
-      } catch (err) {
-        fail(String(err))
-      }
-    })
+    sendCallState()
   })
-}
 
-async function handleSignalMessage(
-  pc: RTCPeerConnection,
-  ws: WebSocket,
-  msg: SignalMessage,
-  onAnswered: () => void,
-): Promise<void> {
-  switch (msg.type) {
-    case 'answer':
-      if (msg.sdp) {
-        await pc.setRemoteDescription(new wrtc.RTCSessionDescription(msg.sdp))
-        onAnswered()
+  ws.on('message', (data) => {
+    try {
+      const msg = JSON.parse(data.toString()) as SignalMessage
+      if (msg.type === 'hangup') {
+        teardownCall()
+      } else {
+        // Forward answer / ice-candidate to renderer WebRTC
+        mainWindow?.webContents.send('ws:message', msg)
       }
-      break
+    } catch { /* ignore */ }
+  })
 
-    case 'ice-candidate':
-      if (msg.candidate) {
-        try {
-          await pc.addIceCandidate(new wrtc.RTCIceCandidate(msg.candidate))
-        } catch { /* stale candidate — ignore */ }
-      }
-      break
+  ws.on('close', () => teardownCall())
+  ws.on('error', () => teardownCall())
 
-    case 'hangup':
-      teardownCall()
-      break
-  }
+  return { ok: true }
 }
 
 // ── IPC handlers ──────────────────────────────────────────────────────────────
 
-ipcMain.handle('call:start', async (_event, clientId: string) => {
+ipcMain.handle('call:start', (_event, clientId: string) => {
   if (callState.active) return { ok: false, reason: 'already in call' }
 
   const client = clients.find((c) => c.id === clientId)
@@ -424,6 +289,13 @@ ipcMain.handle('call:hangup', () => {
 ipcMain.handle('call:mute', (_event, muted: boolean) => {
   callState.isMuted = muted
   sendCallState()
+})
+
+// Renderer sends a WebRTC signalling message — forward over WebSocket to client
+ipcMain.handle('ws:send', (_event, msg: unknown) => {
+  if (callSocket?.readyState === WebSocket.OPEN) {
+    callSocket.send(JSON.stringify(msg))
+  }
 })
 
 ipcMain.handle('config:save', (_event, newConfig: unknown) => {

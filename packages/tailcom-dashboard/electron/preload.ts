@@ -1,8 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron'
 
-// Expose a safe, typed IPC bridge to the renderer.
-// The renderer never touches ipcRenderer directly.
-
 contextBridge.exposeInMainWorld('tailcom', {
   // ── Renderer → Main ───────────────────────────────────────────────────────
 
@@ -18,6 +15,10 @@ contextBridge.exposeInMainWorld('tailcom', {
   saveConfig: (config: unknown) =>
     ipcRenderer.invoke('config:save', config),
 
+  // Send a WebRTC signalling message to the client over WebSocket (via main)
+  wsSend: (msg: unknown) =>
+    ipcRenderer.invoke('ws:send', msg),
+
   // ── Main → Renderer ───────────────────────────────────────────────────────
 
   onClientsUpdate: (cb: (clients: ClientStatus[]) => void) => {
@@ -29,10 +30,26 @@ contextBridge.exposeInMainWorld('tailcom', {
     ipcRenderer.on('call:state', (_event, state) => cb(state as CallState))
     return () => ipcRenderer.removeAllListeners('call:state')
   },
+
+  // WebSocket opened — renderer should start WebRTC
+  onWsOpen: (cb: (clientId: string, clientName: string) => void) => {
+    ipcRenderer.on('ws:open', (_event, clientId, clientName) => cb(clientId as string, clientName as string))
+    return () => ipcRenderer.removeAllListeners('ws:open')
+  },
+
+  // Incoming signalling message from client — forward to renderer WebRTC logic
+  onWsMessage: (cb: (msg: unknown) => void) => {
+    ipcRenderer.on('ws:message', (_event, msg) => cb(msg))
+    return () => ipcRenderer.removeAllListeners('ws:message')
+  },
+
+  // WebSocket closed — renderer should teardown WebRTC
+  onWsClose: (cb: () => void) => {
+    ipcRenderer.on('ws:close', _event => cb())
+    return () => ipcRenderer.removeAllListeners('ws:close')
+  },
 })
 
-// Types duplicated here so preload (which runs in its own context)
-// doesn't need to import from src/
 export interface ClientStatus {
   id: string
   name: string
