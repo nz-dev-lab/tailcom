@@ -1,0 +1,11 @@
+{
+  "dashboardId": "developer-laptop",
+  "clients": [
+    {
+      "name": "Shop Name",
+      "ip": "100.x.x.x",
+      "port": 7654
+    }
+  ],
+  "recordingsPath": "/home/youruser/Documents/tailcom-recordings"
+}

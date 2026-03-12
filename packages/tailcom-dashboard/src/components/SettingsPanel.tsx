@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import { useStore } from '../store'
 import type { ClientStatus } from '../types'
 
@@ -18,8 +18,14 @@ export default function SettingsPanel({ onClose }: Props) {
   const [rows, setRows] = useState<ClientRow[]>(() =>
     storeClients.map((c) => ({ id: c.id, name: c.name, ip: c.ip, port: String(c.port) }))
   )
+  const [recordingsPath, setRecordingsPath] = useState('')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  // Load current recordings path on mount
+  useEffect(() => {
+    void window.tailcom.getRecordingsPath().then(setRecordingsPath)
+  }, [])
 
   function updateRow(id: string, field: keyof Omit<ClientRow, 'id'>, value: string) {
     setRows((prev) =>
@@ -57,6 +63,7 @@ export default function SettingsPanel({ onClose }: Props) {
         ip: r.ip.trim(),
         port: parseInt(r.port, 10),
       })),
+      recordingsPath: recordingsPath.trim() || undefined,
     }
 
     setSaving(true)
@@ -119,6 +126,15 @@ export default function SettingsPanel({ onClose }: Props) {
       </div>
 
       <button style={styles.addBtn} onClick={addRow}>+ Add client</button>
+
+      <p style={styles.sectionLabel}>Recordings</p>
+      <input
+        style={styles.input}
+        placeholder="Recordings folder path"
+        value={recordingsPath}
+        onChange={(e) => setRecordingsPath(e.target.value)}
+      />
+      <p style={styles.hint}>Folder where recorded calls are saved (.webm files)</p>
 
       {error && <p style={styles.errorMsg}>{error}</p>}
 
@@ -226,6 +242,11 @@ const styles: Record<string, React.CSSProperties> = {
   errorMsg: {
     fontSize: 12,
     color: '#EF4444',
+  },
+  hint: {
+    fontSize: 11,
+    color: '#78716C',
+    marginTop: -6,
   },
   saveBtn: {
     background: '#14B8A6',

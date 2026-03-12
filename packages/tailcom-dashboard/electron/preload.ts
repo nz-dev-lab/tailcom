@@ -48,6 +48,14 @@ contextBridge.exposeInMainWorld('tailcom', {
     ipcRenderer.on('ws:close', _event => cb())
     return () => ipcRenderer.removeAllListeners('ws:close')
   },
+
+  // Save a recording file via main process
+  saveRecording: (data: ArrayBuffer, filename: string) =>
+    ipcRenderer.invoke('recording:save', data, filename),
+
+  // Get current recordings folder path
+  getRecordingsPath: () =>
+    ipcRenderer.invoke('recording:path:get'),
 })
 
 export interface ClientStatus {

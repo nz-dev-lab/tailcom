@@ -1,13 +1,14 @@
 import React, { useEffect, useCallback } from 'react'
 import { useStore } from './store'
 import ClientList from './components/ClientList'
-import CallBar from './components/CallBar'
+import CallScreen from './components/CallScreen'
 import SettingsPanel from './components/SettingsPanel'
 import { useWebRTC } from './hooks/useWebRTC'
 
 export default function App() {
   const setClients = useStore((s) => s.setClients)
   const setCallState = useStore((s) => s.setCallState)
+  const activeCall = useStore((s) => s.activeCall)
 
   // Browser WebRTC — handles offer/answer/ICE + mic/speaker in renderer
   useWebRTC()
@@ -31,27 +32,32 @@ export default function App() {
 
   return (
     <div style={styles.root}>
-      {/* Title bar — drag region + app name + settings button */}
+      {/* Title bar */}
       <div style={styles.titleBar as React.CSSProperties}>
         <span style={styles.appName as React.CSSProperties}>tailcom</span>
-        <button
-          style={styles.settingsBtn as React.CSSProperties}
-          title="Settings"
-          onClick={() => setShowSettings((v) => !v)}
-        >
-          ⚙
-        </button>
-      </div>
-
-      <div style={styles.content}>
-        {showSettings ? (
-          <SettingsPanel onClose={() => setShowSettings(false)} />
-        ) : (
-          <ClientList onTalk={handleTalk} />
+        {!activeCall.active && (
+          <button
+            style={styles.settingsBtn as React.CSSProperties}
+            title="Settings"
+            onClick={() => setShowSettings((v) => !v)}
+          >
+            ⚙
+          </button>
         )}
       </div>
 
-      <CallBar />
+      {/* Full call screen replaces content when in a call */}
+      {activeCall.active ? (
+        <CallScreen />
+      ) : (
+        <div style={styles.content}>
+          {showSettings ? (
+            <SettingsPanel onClose={() => setShowSettings(false)} />
+          ) : (
+            <ClientList onTalk={handleTalk} />
+          )}
+        </div>
+      )}
     </div>
   )
 }

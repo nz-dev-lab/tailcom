@@ -30,6 +30,8 @@ declare global {
       onWsOpen(cb: (clientId: string, clientName: string) => void): () => void
       onWsMessage(cb: (msg: unknown) => void): () => void
       onWsClose(cb: () => void): () => void
+      saveRecording(data: ArrayBuffer, filename: string): Promise<{ ok: boolean; path?: string }>
+      getRecordingsPath(): Promise<string>
     }
   }
 }

@@ -1,6 +1,7 @@
 import { app, BrowserWindow, Tray, Menu, ipcMain, nativeImage } from 'electron'
 import * as path from 'path'
 import * as fs from 'fs'
+import * as os from 'os'
 import { WebSocket } from 'ws'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -14,6 +15,7 @@ interface ClientConfig {
 interface TailcomConfig {
   dashboardId: string
   clients: ClientConfig[]
+  recordingsPath?: string
 }
 
 interface ClientStatus extends ClientConfig {
@@ -305,6 +307,22 @@ ipcMain.handle('config:save', (_event, newConfig: unknown) => {
   } catch (err) {
     return { ok: false, reason: String(err) }
   }
+})
+
+ipcMain.handle('recording:save', async (_event, data: ArrayBuffer, filename: string) => {
+  try {
+    const recPath = config.recordingsPath ?? path.join(os.homedir(), 'Documents', 'tailcom-recordings')
+    await fs.promises.mkdir(recPath, { recursive: true })
+    const fullPath = path.join(recPath, filename)
+    await fs.promises.writeFile(fullPath, Buffer.from(data))
+    return { ok: true, path: fullPath }
+  } catch (err) {
+    return { ok: false, reason: String(err) }
+  }
+})
+
+ipcMain.handle('recording:path:get', () => {
+  return config.recordingsPath ?? path.join(os.homedir(), 'Documents', 'tailcom-recordings')
 })
 
 // ── App lifecycle ─────────────────────────────────────────────────────────────
