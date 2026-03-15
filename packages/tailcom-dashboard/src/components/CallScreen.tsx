@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react'
 import { useStore } from '../store'
-import { getAnalyser, startRecording, stopRecording } from '../hooks/useWebRTC'
+import { getAnalyser, getRemoteAnalyser, startRecording, stopRecording } from '../hooks/useWebRTC'
 
 // Inject keyframe animations once
 if (typeof document !== 'undefined') {
@@ -30,6 +30,10 @@ export default function CallScreen() {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const animRef = useRef<number>(0)
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const ecgRef = useRef<HTMLCanvasElement>(null)
+  const ecgAnimRef = useRef<number>(0)
+  const localBuf = useRef<number[]>(new Array(150).fill(0))
+  const remoteBuf = useRef<number[]>(new Array(150).fill(0))
 
   // ── Timer ────────────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -100,6 +104,60 @@ export default function CallScreen() {
     return () => cancelAnimationFrame(animRef.current)
   }, [activeCall.active])
 
+  // ── ECG dual-channel visualizer ───────────────────────────────────────────────
+  useEffect(() => {
+    const canvas = ecgRef.current
+    if (!canvas) return
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return
+    const W = canvas.width
+    const H = canvas.height
+    const SAMPLES = 150
+    let frame = 0
+
+    const drawLine = (buf: number[], color: string) => {
+      ctx.strokeStyle = color
+      ctx.lineWidth = 1.5
+      ctx.beginPath()
+      const step = W / SAMPLES
+      buf.forEach((v, i) => {
+        const x = i * step
+        const y = H / 2 - v * (H / 2 - 2)
+        if (i === 0) ctx.moveTo(x, y)
+        else ctx.lineTo(x, y)
+      })
+      ctx.stroke()
+    }
+
+    const draw = () => {
+      ecgAnimRef.current = requestAnimationFrame(draw)
+      frame++
+      if (frame % 6 === 0) {
+        const sample = (analyser: AnalyserNode | null, buf: number[]) => {
+          if (!analyser) { buf.push(0) } else {
+            const d = new Uint8Array(analyser.frequencyBinCount)
+            analyser.getByteTimeDomainData(d)
+            const peak = d.reduce((m, v) => Math.max(m, Math.abs(v - 128)), 0) / 128
+            buf.push(peak)
+          }
+          if (buf.length > SAMPLES) buf.shift()
+        }
+        sample(getAnalyser(), localBuf.current)
+        sample(getRemoteAnalyser(), remoteBuf.current)
+      }
+
+      ctx.clearRect(0, 0, W, H)
+      ctx.strokeStyle = 'rgba(255,255,255,0.06)'
+      ctx.lineWidth = 1
+      ctx.beginPath(); ctx.moveTo(0, H / 2); ctx.lineTo(W, H / 2); ctx.stroke()
+      drawLine(localBuf.current, 'rgba(20,184,166,0.85)')
+      drawLine(remoteBuf.current, 'rgba(168,85,247,0.85)')
+    }
+
+    ecgAnimRef.current = requestAnimationFrame(draw)
+    return () => cancelAnimationFrame(ecgAnimRef.current)
+  }, [activeCall.active])
+
   // ── Recording toggle ──────────────────────────────────────────────────────────
   const handleToggleRecord = useCallback(() => {
     if (isRecording) {
@@ -140,6 +198,13 @@ export default function CallScreen() {
 
       {/* Visualizer */}
       <canvas ref={canvasRef} width={300} height={56} style={s.canvas} />
+
+      {/* ECG dual-channel */}
+      <canvas ref={ecgRef} width={300} height={44} style={s.canvas} />
+      <div style={s.ecgLegend}>
+        <span style={{ color: 'rgba(20,184,166,0.85)' }}>■ you</span>
+        <span style={{ color: 'rgba(168,85,247,0.85)' }}>■ kitchen</span>
+      </div>
 
       {/* Controls */}
       <div style={s.controls}>
@@ -261,7 +326,14 @@ const s: Record<string, React.CSSProperties> = {
   },
   canvas: {
     display: 'block',
-    margin: '6px 0 10px',
+    margin: '6px 0 0',
+  },
+  ecgLegend: {
+    display: 'flex',
+    gap: 12,
+    fontSize: 10,
+    marginBottom: 10,
+    opacity: 0.7,
   },
   controls: {
     display: 'flex',

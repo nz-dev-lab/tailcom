@@ -10,12 +10,17 @@ interface SignalMessage {
 // ── Module-level singletons (one call at a time) ──────────────────────────────
 
 let _analyser: AnalyserNode | null = null
+let _remoteAnalyser: AnalyserNode | null = null
 let _recordingDest: MediaStreamAudioDestinationNode | null = null
 let _recorder: MediaRecorder | null = null
 let _chunks: Blob[] = []
 
 export function getAnalyser(): AnalyserNode | null {
   return _analyser
+}
+
+export function getRemoteAnalyser(): AnalyserNode | null {
+  return _remoteAnalyser
 }
 
 export function startRecording(clientName: string, onDone: (saved: boolean) => void): void {
@@ -72,6 +77,7 @@ export function useWebRTC() {
     }
     _recorder = null
     _analyser = null
+    _remoteAnalyser = null
     _recordingDest = null
     setIsRecording(false)
 
@@ -124,6 +130,10 @@ export function useWebRTC() {
           if (audioCtx.state !== 'closed') {
             const remoteSrc = audioCtx.createMediaStreamSource(e.streams[0])
             remoteSrc.connect(dest)
+            const remoteAnalyser = audioCtx.createAnalyser()
+            remoteAnalyser.fftSize = 256
+            remoteSrc.connect(remoteAnalyser)
+            _remoteAnalyser = remoteAnalyser
           }
         }
 
