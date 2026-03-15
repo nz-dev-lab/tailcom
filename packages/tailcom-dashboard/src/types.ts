@@ -32,6 +32,8 @@ declare global {
       onWsClose(cb: () => void): () => void
       saveRecording(data: ArrayBuffer, filename: string): Promise<{ ok: boolean; path?: string }>
       getRecordingsPath(): Promise<string>
+      windowMinimize(): void
+      windowClose(): void
     }
   }
 }

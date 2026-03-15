@@ -35,15 +35,31 @@ export default function App() {
       {/* Title bar */}
       <div style={styles.titleBar as React.CSSProperties}>
         <span style={styles.appName as React.CSSProperties}>tailcom</span>
-        {!activeCall.active && (
+        <div style={styles.titleBarRight as React.CSSProperties}>
+          {!activeCall.active && (
+            <button
+              style={styles.settingsBtn as React.CSSProperties}
+              title="Settings"
+              onClick={() => setShowSettings((v) => !v)}
+            >
+              ⚙
+            </button>
+          )}
           <button
-            style={styles.settingsBtn as React.CSSProperties}
-            title="Settings"
-            onClick={() => setShowSettings((v) => !v)}
+            style={styles.winBtn as React.CSSProperties}
+            title="Minimize"
+            onClick={() => window.tailcom.windowMinimize()}
           >
-            ⚙
+            ─
           </button>
-        )}
+          <button
+            style={{ ...styles.winBtn, ...styles.winBtnClose } as React.CSSProperties}
+            title="Close"
+            onClick={() => window.tailcom.windowClose()}
+          >
+            ✕
+          </button>
+        </div>
       </div>
 
       {/* Full call screen replaces content when in a call */}
@@ -87,6 +103,12 @@ const styles: Record<string, React.CSSProperties & { WebkitAppRegion?: string }>
     color: '#14B8A6',
     WebkitAppRegion: 'drag',
   },
+  titleBarRight: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 4,
+    WebkitAppRegion: 'no-drag',
+  },
   settingsBtn: {
     background: 'none',
     border: 'none',
@@ -96,6 +118,20 @@ const styles: Record<string, React.CSSProperties & { WebkitAppRegion?: string }>
     lineHeight: 1,
     padding: 4,
     WebkitAppRegion: 'no-drag',
+  },
+  winBtn: {
+    background: 'none',
+    border: 'none',
+    color: '#78716C',
+    fontSize: 13,
+    cursor: 'pointer',
+    lineHeight: 1,
+    padding: '4px 8px',
+    borderRadius: 4,
+    WebkitAppRegion: 'no-drag',
+  },
+  winBtnClose: {
+    color: '#EF4444',
   },
   content: {
     flex: 1,

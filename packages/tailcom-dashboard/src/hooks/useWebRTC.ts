@@ -125,7 +125,8 @@ export function useWebRTC() {
         pc.ontrack = (e) => {
           if (audioCtx.state === 'closed') return
           void audioCtx.resume()
-          const remoteSrc = audioCtx.createMediaStreamSource(e.streams[0])
+          const remoteStream = e.streams[0] ?? new MediaStream([e.track])
+          const remoteSrc = audioCtx.createMediaStreamSource(remoteStream)
           remoteSrc.connect(dest)
           const remoteAnalyser = audioCtx.createAnalyser()
           remoteAnalyser.fftSize = 256

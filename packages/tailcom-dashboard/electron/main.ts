@@ -99,6 +99,7 @@ function createWindow(): void {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
+      autoplayPolicy: 'no-user-gesture-required',
     },
   })
 
@@ -324,6 +325,9 @@ ipcMain.handle('recording:save', async (_event, data: ArrayBuffer, filename: str
 ipcMain.handle('recording:path:get', () => {
   return config.recordingsPath ?? path.join(os.homedir(), 'Documents', 'tailcom-recordings')
 })
+
+ipcMain.on('window:minimize', () => { mainWindow?.minimize() })
+ipcMain.on('window:close',    () => { mainWindow?.hide() })
 
 // ── App lifecycle ─────────────────────────────────────────────────────────────
 

@@ -56,6 +56,9 @@ contextBridge.exposeInMainWorld('tailcom', {
   // Get current recordings folder path
   getRecordingsPath: () =>
     ipcRenderer.invoke('recording:path:get'),
+
+  windowMinimize: () => ipcRenderer.send('window:minimize'),
+  windowClose:    () => ipcRenderer.send('window:close'),
 })
 
 export interface ClientStatus {
