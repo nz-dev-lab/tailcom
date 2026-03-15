@@ -123,18 +123,15 @@ export function useWebRTC() {
 
         // When remote audio arrives: play through speakers + add to recording mix
         pc.ontrack = (e) => {
-          const audio = new Audio()
-          audio.srcObject = e.streams[0]
-          void audio.play()
-
-          if (audioCtx.state !== 'closed') {
-            const remoteSrc = audioCtx.createMediaStreamSource(e.streams[0])
-            remoteSrc.connect(dest)
-            const remoteAnalyser = audioCtx.createAnalyser()
-            remoteAnalyser.fftSize = 256
-            remoteSrc.connect(remoteAnalyser)
-            _remoteAnalyser = remoteAnalyser
-          }
+          if (audioCtx.state === 'closed') return
+          void audioCtx.resume()
+          const remoteSrc = audioCtx.createMediaStreamSource(e.streams[0])
+          remoteSrc.connect(dest)
+          const remoteAnalyser = audioCtx.createAnalyser()
+          remoteAnalyser.fftSize = 256
+          remoteSrc.connect(remoteAnalyser)
+          remoteAnalyser.connect(audioCtx.destination) // plays audio + keeps AudioContext alive
+          _remoteAnalyser = remoteAnalyser
         }
 
         // Forward ICE candidates
