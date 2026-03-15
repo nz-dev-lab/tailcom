@@ -126,14 +126,20 @@ export function useWebRTC() {
           console.log('[tailcom:webrtc] ontrack fired — streams:', e.streams.length, 'track:', e.track.kind, 'enabled:', e.track.enabled)
           if (audioCtx.state === 'closed') return
           void audioCtx.resume()
-          console.log('[tailcom:webrtc] AudioContext state:', audioCtx.state)
           const remoteStream = e.streams[0] ?? new MediaStream([e.track])
+
+          // Audio element for reliable playback in Electron
+          const remoteAudio = new Audio()
+          remoteAudio.autoplay = true
+          remoteAudio.srcObject = remoteStream
+          void remoteAudio.play().catch((err: Error) => console.error('[tailcom:webrtc] audio play failed:', err.message))
+
+          // Web Audio API for visualizer + recording mix only
           const remoteSrc = audioCtx.createMediaStreamSource(remoteStream)
           remoteSrc.connect(dest)
           const remoteAnalyser = audioCtx.createAnalyser()
           remoteAnalyser.fftSize = 256
           remoteSrc.connect(remoteAnalyser)
-          remoteAnalyser.connect(audioCtx.destination) // plays audio + keeps AudioContext alive
           _remoteAnalyser = remoteAnalyser
         }
 
