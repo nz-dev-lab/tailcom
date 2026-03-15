@@ -123,8 +123,10 @@ export function useWebRTC() {
 
         // When remote audio arrives: play through speakers + add to recording mix
         pc.ontrack = (e) => {
+          console.log('[tailcom:webrtc] ontrack fired — streams:', e.streams.length, 'track:', e.track.kind, 'enabled:', e.track.enabled)
           if (audioCtx.state === 'closed') return
           void audioCtx.resume()
+          console.log('[tailcom:webrtc] AudioContext state:', audioCtx.state)
           const remoteStream = e.streams[0] ?? new MediaStream([e.track])
           const remoteSrc = audioCtx.createMediaStreamSource(remoteStream)
           remoteSrc.connect(dest)
