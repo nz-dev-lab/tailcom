@@ -329,6 +329,21 @@ ipcMain.handle('recording:path:get', () => {
 ipcMain.on('window:minimize', () => { mainWindow?.minimize() })
 ipcMain.on('window:close',    () => { mainWindow?.hide() })
 
+// ── Debug log file ────────────────────────────────────────────────────────────
+
+const logPath = path.join(os.homedir(), 'Documents', 'tailcom-debug.log')
+
+function writeLog(line: string): void {
+  const ts = new Date().toISOString()
+  fs.appendFileSync(logPath, `[${ts}] ${line}\n`)
+}
+
+writeLog('=== tailcom-dashboard started ===')
+
+ipcMain.on('log:write', (_event, line: string) => {
+  writeLog(line)
+})
+
 // ── App lifecycle ─────────────────────────────────────────────────────────────
 
 app.whenReady().then(() => {

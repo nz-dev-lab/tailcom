@@ -61,6 +61,13 @@ export function stopRecording(): void {
   _recorder = null
 }
 
+// ── Logging helper ────────────────────────────────────────────────────────────
+
+function log(msg: string): void {
+  console.log(`[tailcom:webrtc] ${msg}`)
+  window.tailcom.log(`[renderer:webrtc] ${msg}`)
+}
+
 // ── Hook ──────────────────────────────────────────────────────────────────────
 
 export function useWebRTC() {
@@ -69,6 +76,7 @@ export function useWebRTC() {
   const pcRef = useRef<RTCPeerConnection | null>(null)
   const streamRef = useRef<MediaStream | null>(null)
   const audioCtxRef = useRef<AudioContext | null>(null)
+  const remoteAudioRef = useRef<HTMLAudioElement | null>(null)
 
   const cleanup = useCallback(() => {
     // Stop any active recording
@@ -81,6 +89,9 @@ export function useWebRTC() {
     _recordingDest = null
     setIsRecording(false)
 
+    remoteAudioRef.current?.pause()
+    remoteAudioRef.current = null
+
     audioCtxRef.current?.close()
     audioCtxRef.current = null
 
@@ -92,73 +103,154 @@ export function useWebRTC() {
   }, [setIsRecording])
 
   useEffect(() => {
-    const offOpen = window.tailcom.onWsOpen(async (_clientId, _clientName) => {
+    const offOpen = window.tailcom.onWsOpen(async (_clientId, clientName) => {
+      log(`=== CALL START — client: ${clientName} ===`)
       try {
         const pc = new RTCPeerConnection({ iceServers: [] })
         pcRef.current = pc
 
+        // ── RTCPeerConnection state observers ─────────────────────────────────
+        pc.onconnectionstatechange = () => {
+          log(`connectionState → ${pc.connectionState}`)
+        }
+        pc.oniceconnectionstatechange = () => {
+          log(`iceConnectionState → ${pc.iceConnectionState}`)
+        }
+        pc.onicegatheringstatechange = () => {
+          log(`iceGatheringState → ${pc.iceGatheringState}`)
+        }
+        pc.onsignalingstatechange = () => {
+          log(`signalingState → ${pc.signalingState}`)
+        }
+
         // Capture microphone
+        log('requesting getUserMedia...')
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false })
         streamRef.current = stream
+        const micTrack = stream.getAudioTracks()[0]
+        log(`mic acquired — label: "${micTrack?.label ?? 'unknown'}" enabled: ${micTrack?.enabled ?? false}`)
 
         // AudioContext for visualizer + recording mix
         const audioCtx = new AudioContext()
         audioCtxRef.current = audioCtx
+        log(`AudioContext created — state: ${audioCtx.state} sampleRate: ${audioCtx.sampleRate}`)
 
         const localSrc = audioCtx.createMediaStreamSource(stream)
 
-        // Analyser reads from local mic — drives the visualizer
         const analyser = audioCtx.createAnalyser()
         analyser.fftSize = 256
         localSrc.connect(analyser)
         _analyser = analyser
 
-        // Recording destination — mix local + remote into one stream
         const dest = audioCtx.createMediaStreamDestination()
         localSrc.connect(dest)
         _recordingDest = dest
 
         // Add mic tracks to peer connection
         stream.getTracks().forEach((t) => pc.addTrack(t, stream))
+        log(`local mic track added to peer connection`)
 
-        // When remote audio arrives: play through speakers + add to recording mix
+        // When remote audio arrives
         pc.ontrack = (e) => {
-          console.log('[tailcom:webrtc] ontrack fired — streams:', e.streams.length, 'track:', e.track.kind, 'enabled:', e.track.enabled)
-          if (audioCtx.state === 'closed') return
-          void audioCtx.resume()
-          const remoteStream = e.streams[0] ?? new MediaStream([e.track])
+          const t = e.track
+          log(`ontrack — kind: ${t.kind} | id: ${t.id} | enabled: ${t.enabled} | muted: ${t.muted} | readyState: ${t.readyState} | streams: ${e.streams.length}`)
 
-          // Audio element for reliable playback in Electron
+          if (audioCtx.state === 'closed') {
+            log('ERROR: AudioContext is closed when ontrack fired — cannot play audio')
+            return
+          }
+
+          log(`AudioContext state at ontrack: ${audioCtx.state}`)
+          void audioCtx.resume().then(() => log(`AudioContext resumed — state now: ${audioCtx.state}`))
+
+          const remoteStream = e.streams[0] ?? new MediaStream([t])
+          log(`remoteStream created — tracks: ${remoteStream.getTracks().length} id: ${remoteStream.id}`)
+
+          // Audio element — kept in ref to prevent GC killing playback
           const remoteAudio = new Audio()
           remoteAudio.autoplay = true
           remoteAudio.srcObject = remoteStream
-          void remoteAudio.play().catch((err: Error) => console.error('[tailcom:webrtc] audio play failed:', err.message))
+          remoteAudioRef.current = remoteAudio
 
-          // Web Audio API for visualizer + recording mix only
+          // Instrument the audio element
+          remoteAudio.onplaying    = () => log('remoteAudio: playing ✅')
+          remoteAudio.onpause      = () => log('remoteAudio: paused ⚠️')
+          remoteAudio.onended      = () => log('remoteAudio: ended')
+          remoteAudio.onstalled    = () => log('remoteAudio: stalled ⚠️')
+          remoteAudio.onwaiting    = () => log('remoteAudio: waiting...')
+          remoteAudio.onerror      = () => log(`remoteAudio: error — code: ${remoteAudio.error?.code ?? '?'} msg: ${remoteAudio.error?.message ?? '?'}`)
+          remoteAudio.onloadeddata = () => log('remoteAudio: loadeddata — first frame available')
+
+          // Track lifecycle events
+          t.onmute   = () => log('remote track: muted')
+          t.onunmute = () => log('remote track: unmuted')
+          t.onended  = () => log('remote track: ended')
+
+          const playAudio = () => {
+            log(`attempting remoteAudio.play() — paused: ${remoteAudio.paused} readyState: ${remoteAudio.readyState}`)
+            void remoteAudio.play().catch((err: Error) => log(`remoteAudio.play() FAILED: ${err.message}`))
+          }
+
+          if (t.muted) {
+            log('track is initially muted — will play on unmute event')
+            t.onunmute = () => {
+              log('remote track: unmuted — triggering play')
+              playAudio()
+            }
+          } else {
+            playAudio()
+          }
+
+          // Web Audio graph for visualizer + recording
           const remoteSrc = audioCtx.createMediaStreamSource(remoteStream)
           remoteSrc.connect(dest)
           const remoteAnalyser = audioCtx.createAnalyser()
           remoteAnalyser.fftSize = 256
           remoteSrc.connect(remoteAnalyser)
           _remoteAnalyser = remoteAnalyser
+          log('remote audio connected to AudioContext graph')
+
+          // Periodic health check — logs audio levels every 5s
+          const buf = new Uint8Array(remoteAnalyser.frequencyBinCount)
+          const healthTimer = setInterval(() => {
+            remoteAnalyser.getByteFrequencyData(buf)
+            const avg = buf.reduce((s, v) => s + v, 0) / buf.length
+            const audioElState = `paused:${remoteAudio.paused} readyState:${remoteAudio.readyState} currentTime:${remoteAudio.currentTime.toFixed(2)}`
+            const trackState   = `enabled:${t.enabled} muted:${t.muted} readyState:${t.readyState}`
+            const ctxState     = `audioCtx:${audioCtx.state}`
+            log(`[HEALTH] remoteLevel:${avg.toFixed(1)} | ${audioElState} | ${trackState} | ${ctxState}`)
+          }, 5000)
+
+          // Clear health timer when track ends
+          t.onended = () => {
+            log('remote track: ended — clearing health timer')
+            clearInterval(healthTimer)
+          }
         }
 
-        // Forward ICE candidates
+        // ICE candidates
         pc.onicecandidate = (e) => {
           if (e.candidate) {
+            log(`sending ICE candidate — protocol: ${e.candidate.protocol} type: ${e.candidate.type}`)
             void window.tailcom.wsSend({
               type: 'ice-candidate',
               candidate: e.candidate.toJSON(),
             })
+          } else {
+            log('ICE gathering complete (null candidate)')
           }
         }
 
         // Create and send SDP offer
+        log('creating SDP offer...')
         const offer = await pc.createOffer()
         await pc.setLocalDescription(offer)
+        log(`offer created — type: ${offer.type} sdp length: ${offer.sdp?.length ?? 0}`)
         void window.tailcom.wsSend({ type: 'offer', sdp: { type: offer.type, sdp: offer.sdp } })
+        log('offer sent to client')
+
       } catch (err) {
-        console.error('[tailcom] WebRTC start failed:', err)
+        log(`WebRTC start FAILED: ${String(err)}`)
         void window.tailcom.hangUp()
       }
     })
@@ -170,18 +262,25 @@ export function useWebRTC() {
 
       try {
         if (msg.type === 'answer' && msg.sdp) {
+          log(`received answer — sdp length: ${msg.sdp.sdp?.length ?? 0}`)
           await pc.setRemoteDescription(msg.sdp)
+          log('remote description set')
         } else if (msg.type === 'ice-candidate' && msg.candidate) {
+          log(`received ICE candidate from client`)
           await pc.addIceCandidate(msg.candidate)
         } else if (msg.type === 'hangup') {
+          log('received hangup from client')
           cleanup()
         }
       } catch (err) {
-        console.error('[tailcom] WebRTC signal error:', err)
+        log(`WebRTC signal error: ${String(err)}`)
       }
     })
 
-    const offClose = window.tailcom.onWsClose(cleanup)
+    const offClose = window.tailcom.onWsClose(() => {
+      log('WebSocket closed — tearing down')
+      cleanup()
+    })
 
     return () => {
       offOpen()

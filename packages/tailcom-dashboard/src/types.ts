@@ -34,6 +34,7 @@ declare global {
       getRecordingsPath(): Promise<string>
       windowMinimize(): void
       windowClose(): void
+      log(line: string): void
     }
   }
 }

@@ -59,6 +59,8 @@ contextBridge.exposeInMainWorld('tailcom', {
 
   windowMinimize: () => ipcRenderer.send('window:minimize'),
   windowClose:    () => ipcRenderer.send('window:close'),
+
+  log: (line: string) => ipcRenderer.send('log:write', line),
 })
 
 export interface ClientStatus {
