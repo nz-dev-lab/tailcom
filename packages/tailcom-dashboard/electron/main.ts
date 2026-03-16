@@ -2,6 +2,7 @@ import { app, BrowserWindow, Tray, Menu, ipcMain, nativeImage } from 'electron'
 import * as path from 'path'
 import * as fs from 'fs'
 import * as os from 'os'
+import { exec } from 'child_process'
 import { WebSocket } from 'ws'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -329,6 +330,36 @@ ipcMain.handle('recording:path:get', () => {
 ipcMain.on('window:minimize', () => { mainWindow?.minimize() })
 ipcMain.on('window:close',    () => { mainWindow?.hide() })
 
+// ── Tailscale controls ────────────────────────────────────────────────────────
+
+function getTailscaleStatus(): Promise<'up' | 'down'> {
+  return new Promise((resolve) => {
+    exec('sudo -n tailscale status --json', (err, stdout) => {
+      if (err) { resolve('down'); return }
+      try {
+        const json = JSON.parse(stdout) as { BackendState?: string }
+        resolve(json.BackendState === 'Running' ? 'up' : 'down')
+      } catch { resolve('down') }
+    })
+  })
+}
+
+ipcMain.handle('tailscale:status', () => getTailscaleStatus())
+
+ipcMain.handle('tailscale:up', () => new Promise<{ ok: boolean }>((resolve) => {
+  exec('sudo -n tailscale up', (err) => {
+    mainWindow?.webContents.send('tailscale:state', err ? 'down' : 'up')
+    resolve({ ok: !err })
+  })
+}))
+
+ipcMain.handle('tailscale:down', () => new Promise<{ ok: boolean }>((resolve) => {
+  exec('sudo -n tailscale down', (err) => {
+    mainWindow?.webContents.send('tailscale:state', err ? 'up' : 'down')
+    resolve({ ok: !err })
+  })
+}))
+
 // ── Debug log file ────────────────────────────────────────────────────────────
 
 const logPath = path.join(os.homedir(), 'Documents', 'tailcom-debug.log')
@@ -352,10 +383,18 @@ app.whenReady().then(() => {
   createTray()
   startPolling()
 
-  mainWindow?.webContents.on('did-finish-load', () => {
+  mainWindow?.webContents.on('did-finish-load', async () => {
     sendClientsUpdate()
     sendCallState()
+    const state = await getTailscaleStatus()
+    mainWindow?.webContents.send('tailscale:state', state)
   })
+
+  // Poll Tailscale status every 10s
+  setInterval(async () => {
+    const state = await getTailscaleStatus()
+    mainWindow?.webContents.send('tailscale:state', state)
+  }, 10_000)
 })
 
 app.on('before-quit', () => {

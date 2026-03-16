@@ -61,6 +61,14 @@ contextBridge.exposeInMainWorld('tailcom', {
   windowClose:    () => ipcRenderer.send('window:close'),
 
   log: (line: string) => ipcRenderer.send('log:write', line),
+
+  tailscaleStatus: () => ipcRenderer.invoke('tailscale:status'),
+  tailscaleUp:     () => ipcRenderer.invoke('tailscale:up'),
+  tailscaleDown:   () => ipcRenderer.invoke('tailscale:down'),
+  onTailscaleState: (cb: (state: 'up' | 'down') => void) => {
+    ipcRenderer.on('tailscale:state', (_e, state) => cb(state as 'up' | 'down'))
+    return () => ipcRenderer.removeAllListeners('tailscale:state')
+  },
 })
 
 export interface ClientStatus {

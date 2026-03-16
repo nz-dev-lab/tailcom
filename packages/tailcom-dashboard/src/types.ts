@@ -35,6 +35,10 @@ declare global {
       windowMinimize(): void
       windowClose(): void
       log(line: string): void
+      tailscaleStatus(): Promise<'up' | 'down'>
+      tailscaleUp(): Promise<{ ok: boolean }>
+      tailscaleDown(): Promise<{ ok: boolean }>
+      onTailscaleState(cb: (state: 'up' | 'down') => void): () => void
     }
   }
 }

@@ -13,15 +13,31 @@ export default function App() {
   // Browser WebRTC — handles offer/answer/ICE + mic/speaker in renderer
   useWebRTC()
   const [showSettings, setShowSettings] = React.useState(false)
+  const [tsState, setTsState] = React.useState<'up' | 'down' | 'loading'>('loading')
+  const [tsToggling, setTsToggling] = React.useState(false)
 
   useEffect(() => {
     const offClients = window.tailcom.onClientsUpdate(setClients)
     const offCall = window.tailcom.onCallState(setCallState)
+    const offTs = window.tailcom.onTailscaleState(setTsState)
+    void window.tailcom.tailscaleStatus().then(setTsState)
     return () => {
       offClients()
       offCall()
+      offTs()
     }
   }, [setClients, setCallState])
+
+  const handleTailscaleToggle = async () => {
+    if (tsToggling) return
+    setTsToggling(true)
+    if (tsState === 'up') {
+      await window.tailcom.tailscaleDown()
+    } else {
+      await window.tailcom.tailscaleUp()
+    }
+    setTsToggling(false)
+  }
 
   const handleTalk = useCallback(async (clientId: string) => {
     const result = await window.tailcom.startCall(clientId)
@@ -36,6 +52,20 @@ export default function App() {
       <div style={styles.titleBar as React.CSSProperties}>
         <span style={styles.appName as React.CSSProperties}>tailcom</span>
         <div style={styles.titleBarRight as React.CSSProperties}>
+          <button
+            style={{
+              ...styles.tsPill,
+              background: tsState === 'up' ? '#14532D' : tsState === 'down' ? '#450A0A' : '#292524',
+              opacity: tsToggling ? 0.6 : 1,
+              cursor: tsToggling ? 'not-allowed' : 'pointer',
+            } as React.CSSProperties}
+            title={tsState === 'up' ? 'Tailscale ON — click to disconnect' : 'Tailscale OFF — click to connect'}
+            onClick={handleTailscaleToggle}
+            disabled={tsToggling}
+          >
+            <span style={{ color: tsState === 'up' ? '#4ADE80' : '#F87171', fontSize: 8 }}>●</span>
+            {' '}TS
+          </button>
           {!activeCall.active && (
             <button
               style={styles.settingsBtn as React.CSSProperties}
@@ -107,6 +137,16 @@ const styles: Record<string, React.CSSProperties & { WebkitAppRegion?: string }>
     display: 'flex',
     alignItems: 'center',
     gap: 4,
+    WebkitAppRegion: 'no-drag',
+  },
+  tsPill: {
+    border: 'none',
+    borderRadius: 12,
+    padding: '3px 9px',
+    fontSize: 11,
+    fontWeight: 600,
+    color: '#FAFAF9',
+    letterSpacing: '0.04em',
     WebkitAppRegion: 'no-drag',
   },
   settingsBtn: {

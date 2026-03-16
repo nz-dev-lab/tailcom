@@ -37,22 +37,27 @@
   "build": {
     "appId": "com.tailcom.dashboard",
     "productName": "tailcom",
+    "icon": "assets/icon.png",
     "directories": {
       "output": "release"
     },
     "files": [
       "dist/**/*",
+      "assets/**/*",
       "tailcom.config.json"
     ],
     "mac": {
-      "category": "public.app-category.utilities"
+      "category": "public.app-category.utilities",
+      "icon": "assets/icon.png"
     },
     "win": {
-      "target": "nsis"
+      "target": "nsis",
+      "icon": "assets/icon.png"
     },
     "linux": {
       "target": "AppImage",
-      "category": "Utility"
+      "category": "Utility",
+      "icon": "assets/icon.png"
     }
   },
   "license": "MIT"
